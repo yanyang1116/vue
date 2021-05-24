@@ -1,47 +1,47 @@
-var apiURL = 'https://api.github.com/repos/vuejs/vue/commits?per_page=3&sha='
+var apiURL = "https://api.github.com/repos/vuejs/vue/commits?per_page=3&sha=";
 
 /**
  * Actual demo
  */
 
 var demo = new Vue({
-
-  el: '#demo',
-
+  el: "#demo",
   data: {
-    branches: ['master', 'dev'],
-    currentBranch: 'master',
-    commits: null
+    // branches: ["master", "dev"],
+    // currentBranch: "master",
+    // commits: null,
   },
 
+  template: `<p>asdfasdf</p>`,
+
   created: function () {
-    this.fetchData()
+    // this.fetchData();
   },
 
   watch: {
-    currentBranch: 'fetchData'
+    // currentBranch: "fetchData",
   },
 
   filters: {
-    truncate: function (v) {
-      var newline = v.indexOf('\n')
-      return newline > 0 ? v.slice(0, newline) : v
-    },
-    formatDate: function (v) {
-      return v.replace(/T|Z/g, ' ')
-    }
+    // truncate: function (v) {
+    //   var newline = v.indexOf("\n");
+    //   return newline > 0 ? v.slice(0, newline) : v;
+    // },
+    // formatDate: function (v) {
+    //   return v.replace(/T|Z/g, " ");
+    // },
   },
 
   methods: {
-    fetchData: function () {
-      var xhr = new XMLHttpRequest()
-      var self = this
-      xhr.open('GET', apiURL + self.currentBranch)
-      xhr.onload = function () {
-        self.commits = JSON.parse(xhr.responseText)
-        console.log(self.commits[0].html_url)
-      }
-      xhr.send()
-    }
-  }
-})
+    // fetchData: function () {
+    //   var xhr = new XMLHttpRequest();
+    //   var self = this;
+    //   xhr.open("GET", apiURL + self.currentBranch);
+    //   xhr.onload = function () {
+    //     self.commits = JSON.parse(xhr.responseText);
+    //     console.log(self.commits[0].html_url);
+    //   };
+    //   xhr.send();
+    // },
+  },
+});
