@@ -89,6 +89,12 @@
    * Create a cached version of a pure function.
    */
   function cached(fn) {
+    /**
+     * 这是啥？缓存一个方法并返回？
+     * 返回后的方法，接受 key 命中之前的缓存结果，否则执行并缓存执行结果
+     * 比如，decodeHTMLCached 的 html 节点操作中被用到 (innerHTML)，减少 DOM 操作
+     * 这个方法应该是很实用的，处理唯一 key 映射的情况
+     */
     var cache = Object.create(null);
     return function cachedFn(str) {
       var hit = cache[str];
@@ -5795,40 +5801,64 @@
     return value.replace(ampRE, "&").replace(quoteRE, '"');
   }
 
+  /**
+   * 这个方法用一个 while 循环来对传入的 template 做处理
+   * 用正则来匹配标签类型，然后往 ast tree 中推
+   * 推完，template 删掉标记节点
+   * 直到 template 为 '' 停止循环，最终输出 ast tree
+   */
   function parseHTML(html, options) {
-    var stack = [];
+    var stack = []; // 大概会被组织成这样：{ attrsList: [], attrsMap: {}, children: [{…}], parent: undefined, plain: true, tag: "div", type: 1 }
     var expectHTML = options.expectHTML;
     var isUnaryTag$$1 = options.isUnaryTag || no;
     var isFromDOM = options.isFromDOM;
     var index = 0;
     var last, lastTag;
+    /**
+     * 为什么一定要有一个根节点，我觉得最大的原因是：
+     * 最终是为了输出 ast 结构，这种以一个点展开的 DOM 描述本身就必须要求有一个根节点
+     */
     while (html) {
+      debugger;
       last = html;
-      // Make sure we're not in a script or style element
+      /**
+       * Make sure we're not in a script or style element
+       * isSpecialTag 是检测 style 和 script 的
+       * 对于 specialTag 的处理是很有必要的，实际中确实有直接插入 link、script 的情况
+       */
       if (!lastTag || !isSpecialTag(lastTag)) {
         var textEnd = html.indexOf("<");
+        // 这个判断里全都是处理标签节点的情况
         if (textEnd === 0) {
           // Comment:
           if (/^<!--/.test(html)) {
+            /**
+             * 如果只有 <!-- 评论 --> 这种情况
+             * 这里直接找到第一个 --> 从文本中删掉
+             */
             var commentEnd = html.indexOf("-->");
-
             if (commentEnd >= 0) {
               advance(commentEnd + 3);
               continue;
             }
           }
-
-          // http://en.wikipedia.org/wiki/Conditional_comment#Downlevel-revealed_conditional_comment
+          /**
+           * 此处是为了处理别的评论的情况，主要是 IE <![if !IE]>
+           * http://en.wikipedia.org/wiki/Conditional_comment#Downlevel-revealed_conditional_comment
+           * VUE 只兼容到 IE9 所以降级方法是没用的，处理方法和 Comment 一样
+           */
           if (/^<!\[/.test(html)) {
             var conditionalEnd = html.indexOf("]>");
-
             if (conditionalEnd >= 0) {
               advance(conditionalEnd + 2);
               continue;
             }
           }
 
-          // Doctype:
+          /**
+           * 处理方法和上文一样，直接删除
+           * Doctype:
+           */
           var doctypeMatch = html.match(doctype);
           if (doctypeMatch) {
             advance(doctypeMatch[0].length);
@@ -5836,10 +5866,19 @@
           }
 
           // End tag:
+          /**
+           * 看下这个正则 new RegExp("^<\\/" + qnameCapture + "[^>]*>")
+           * 好像很简单，以 "</" 开头(^) 中间是标签名，又以 ">" 结尾，后面有或者没有字符(* 重复零次或更多次)
+           * 总的来说以后遇到要写这种，都可以参考这个正则表达式
+           *
+           * 看下 html.match(endTag) 匹配的结果，第二个参数是 match 匹配到的
+           * ["</p>", "p", index: 0, input: "</p></div>", groups: undefined]
+           */
           var endTagMatch = html.match(endTag);
           if (endTagMatch) {
-            var curIndex = index;
-            advance(endTagMatch[0].length);
+            var curIndex = index; // 这个 index 应该是下文会被赋值，再循环中，反复被赋值，用来记录某个位置，为什么不都选 0?
+            // ["</p>", "p", index: 0, input: "</p></div>", groups: undefined]
+            advance(endTagMatch[0].length); // 这个是为了把 while 循环字符串，删掉匹配到的结束标签
             parseEndTag(endTagMatch[0], endTagMatch[1], curIndex, index);
             continue;
           }
@@ -5852,19 +5891,34 @@
           }
         }
 
+        /**
+         * 到了这里，说明
+         * 1. 没有任何 '<' 的标记
+         * 2. 最近的一项不是标签节点
+         */
         var text = void 0;
         if (textEnd >= 0) {
+          // 这个判断里的情况，其实是下个 < 标记前，文本节点的提取
           text = html.substring(0, textEnd);
           advance(textEnd);
         } else {
+          /**
+           * Even You 的这个 while 循环 html 的思路，应该到这里这个 while 是要结束了
+           */
           text = html;
           html = "";
         }
 
         if (options.chars) {
+          /**
+           * 一定会进，options 有很多虽然是可以定制化的，但是基本上是不用关注的
+           * 这个 chars 方法，其实就是对文本节点的处理
+           */
           options.chars(text);
         }
-      } else {
+      }
+      // 下面这个判断是处理特殊节点（非标签、文本）
+      else {
         var stackedTag = lastTag.toLowerCase();
         var reStackedTag =
           reCache[stackedTag] ||
@@ -5913,27 +5967,45 @@
     }
 
     function parseStartTag() {
+      /**
+       * 这个函数作用值匹配开始标签，组织一个该开始标签对照的 AST 描述并且返回
+       * startTagOpen 是一个标签开始对照的正则表达式
+       * match 到的结果是这样的: ['<div', 'div', 0, ...]
+       */
       var start = html.match(startTagOpen);
+      // 理论上这个判断一定会有???
       if (start) {
         var match = {
           tagName: start[1],
           attrs: [],
           start: index,
         };
+        // 从 html 中删除匹配到的开始标签对照的开始部分，处理后的结果类似于: (" class="test" value="what">demo</div>")
         advance(start[0].length);
         var end, attr;
         while (
+          /**
+           * 这个 while 用的很有技巧啊
+           * 它和把 html 删成 '' 来做循环是类似的效果
+           * Evan You 看来很喜欢用 while 来做循环
+           *
+           * end match 的这个正则，是为了处理开始标签的 > 对照，前面有空格 '   >' 这种情况下拿到的 > 的坐标
+           * 这个判断是把没有任何 attr 的情况给排除掉，同时又作为是否要进入去 push attr 的一个判断条件
+           */
           !(end = html.match(startTagClose)) &&
+          // attr match 匹配的是类似于这样的 [" class="test"", "class", "=", "test", undefined, undefined, index: 0, ...]
           (attr = html.match(attribute))
         ) {
-          advance(attr[0].length);
+          advance(attr[0].length); // 删除 html 中的这个属性，以便于下次循环
+          // 符合判断，往 attrs 数组中推，是 match 到的数组，下文处理 attr 的相关模块会处理
           match.attrs.push(attr);
         }
+        // 理论上一定会进入???
         if (end) {
-          match.unarySlash = end[1];
-          advance(end[0].length);
-          match.end = index;
-          return match;
+          match.unarySlash = end[1]; // 类似单标签 <div /> 情况的处理，unarySlash 可能是为了标记，方便下文处理
+          advance(end[0].length); // 继续删除 html
+          match.end = index; // index 是 advance 修改过的全局变量，end 字段也是一个标记为，方便以后的组织
+          return match; // 返回的是一个开始标签的 AST 表述
         }
       }
     }
@@ -6005,7 +6077,9 @@
         end = index;
       }
 
-      // Find the closest opened tag of the same type
+      /**
+       * Find the closest opened tag of the same type
+       */
       if (tagName) {
         var needle = tagName.toLowerCase();
         for (pos = stack.length - 1; pos >= 0; pos--) {
@@ -6014,12 +6088,18 @@
           }
         }
       } else {
-        // If no tag name is provided, clean shop
+        /**
+         * If no tag name is provided, clean shop
+         * 这种是什么情况？没抓到标签？匹配到了 endTag 没抓到标签？
+         * 是为了 JSX 的 '<> </>' 这种类型的吗？大概是为了性能，直接不要走循环然后就设成 0
+         */
         pos = 0;
       }
 
       if (pos >= 0) {
-        // Close all the open elements, up the stack
+        /**
+         * Close all the open elements, up the stack
+         */
         for (var i = stack.length - 1; i >= pos; i--) {
           if (options.end) {
             options.end(stack[i].tag, start, end);
@@ -6281,6 +6361,11 @@
   var argRE = /:(.*)$/;
   var modifierRE = /\.[^\.]+/g;
 
+  /**
+   * cached 是为了减少 dom 操作
+   * 减少 decodeHTML 中的 innerHTML 赋值
+   * 因为这个方法是唯一 key 吐出 唯一结果，所以整个 VUE 实例中用的都是一个闭包引用
+   */
   var decodeHTMLCached = cached(decodeHTML);
 
   // configurable state
@@ -6451,23 +6536,33 @@
         // remove trailing whitespace
         var element = stack[stack.length - 1];
         var lastNode = element.children[element.children.length - 1];
+        /**
+         * 下文这个判断没看懂，没想到使用场景
+         * vue 后期版本里改成了：lastNode && lastNode.type === 3 && lastNode.text === " " && !inPre
+         */
         if (lastNode && lastNode.type === 3 && lastNode.text === " ") {
           element.children.pop();
         }
-        // pop stack
+
+        /**
+         * pop stack
+         */
         stack.length -= 1;
         currentParent = stack[stack.length - 1];
         // check pre state
         if (element.pre) {
           inVPre = false;
         }
+        // inPre
         if (platformIsPreTag(element.tag)) {
           inPre = false;
         }
       },
 
       chars: function chars(text) {
+        // 这个方法就是对文本节点的处理
         if (!currentParent) {
+          // 如果当前文本节点没有父节点，需要抛出警告
           if ("development" !== "production" && !warned) {
             warned = true;
             warn$1(
@@ -6477,14 +6572,29 @@
           }
           return;
         }
+
         text =
+          /**
+           * 1. 在 pre 中的空白符是有意义的，不需要 trim
+           * 2. 其他文本 trim 完之后在做处理
+           * 3. 二者都是使用上文 decodeHTML 方法中的 innerHTML = html; 然后 decoder.textContent 取值出来
+           * 4. 主要是为了处理文本节点，转义问题: "&lt;b&gt;asdfasdf &lt;&#47;b&gt;" -> "<b>asdfasdf </b>"
+           */
           inPre || text.trim()
-            ? decodeHTMLCached(text)
-            : // only preserve whitespace if its not right after a starting tag
+            ? decodeHTMLCached(text) // 这个方法里，用的一个闭包缓存的技巧，可以看看，很实用，以后可以抄一下 mark
+            : /**
+             * only preserve whitespace if its not right after a starting tag
+             * 展开说一下，能走到这里说明：
+             * 1. 一定是多个空白符被 trim
+             * 2. html 中单个空白符是有排版意义的，所以preserveWhitespace 默认是 true
+             * 3. 如果没有兄弟节点，其实这个空白符就没意义
+             */
             preserveWhitespace && currentParent.children.length
             ? " "
             : "";
+
         if (text) {
+          debugger;
           var expression;
           if (
             !inVPre &&
@@ -6497,6 +6607,7 @@
               text: text,
             });
           } else {
+            // 大部分情况会走到这里，确认这个文本节点的推入
             currentParent.children.push({
               type: 3,
               text: text,

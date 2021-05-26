@@ -12,7 +12,11 @@ var demo = new Vue({
     // commits: null,
   },
 
-  template: `<p>asdfasdf</p>`,
+  // template: `afdsdf<! --文本部分 -->`,
+  // template: `<div class="test" value =  "what" >123123</div>`,
+  // template: `<div class="test" value =  "what" />`,
+  // template: `<div><pre>hjkl<b>9999<b/></pre></div>`,
+  template: `<div> <div>ddd</div>   123123   </div>`,
 
   created: function () {
     // this.fetchData();
