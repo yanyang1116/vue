@@ -37,6 +37,9 @@
   /**
    * Make a map and return a function for checking if a key
    * is in that map.
+   * 这个函数是用闭包打缓存的一个很好的例子
+   * 它和 cache 的运行逻辑不一样，所以不能混用，但是最终的实现原理是一样的
+   * 值得学习
    */
   function makeMap(str, expectsLowerCase) {
     var map = Object.create(null);
@@ -95,7 +98,7 @@
      * 比如，decodeHTMLCached 的 html 节点操作中被用到 (innerHTML)，减少 DOM 操作
      * 这个方法应该是很实用的，处理唯一 key 映射的情况
      */
-    var cache = Object.create(null);
+    var cache = Object.create(null); // 只储存
     return function cachedFn(str) {
       var hit = cache[str];
       return hit || (cache[str] = fn(str));
@@ -3490,6 +3493,7 @@
       "content,element,shadow,template"
   );
 
+  // 这写标签应该是，对照内写了内容，都没卵用的标签
   var isUnaryTag = makeMap(
     "area,base,br,col,embed,frame,hr,img,input,isindex,keygen," +
       "link,meta,param,source,track,wbr",
@@ -3498,6 +3502,15 @@
 
   // Elements that you can, intentionally, leave open
   // (and which close themselves)
+  // 这些标签说的是，可以故意不关闭某些标签，它也能正常显示
+  // https://www.tempertemper.net/blog/optional-closing-tags-in-html
+  // https://meiert.com/en/blog/optional-html/
+  //   <ul>
+  //     <li>Red
+  //     <li>Green
+  //     <li>Blue
+  //   </ul>
+  // 但是我在 mac 上不能调试，mac 上的浏览器总会最大程度的补全
   var canBeLeftOpenTag = makeMap(
     "colgroup,dd,dt,li,options,p,td,tfoot,th,thead,tr,source",
     true
@@ -3505,6 +3518,8 @@
 
   // HTML5 tags https://html.spec.whatwg.org/multipage/indices.html#elements-3
   // Phrasing Content https://html.spec.whatwg.org/multipage/dom.html#phrasing-content
+  // 不是很懂 https://developer.mozilla.org/zh-CN/docs/Web/Guide/HTML/Content_categories
+  // 看起来好像是说，标签语义化的一些东西，但是对我们 vue 处理东西有实际意义吗？
   var isNonPhrasingTag = makeMap(
     "address,article,aside,base,blockquote,body,caption,col,colgroup,dd," +
       "details,dialog,div,dl,dt,fieldset,figcaption,figure,footer,form," +
@@ -5809,8 +5824,8 @@
    */
   function parseHTML(html, options) {
     var stack = []; // 大概会被组织成这样：{ attrsList: [], attrsMap: {}, children: [{…}], parent: undefined, plain: true, tag: "div", type: 1 }
-    var expectHTML = options.expectHTML;
-    var isUnaryTag$$1 = options.isUnaryTag || no;
+    var expectHTML = options.expectHTML; // 都是 true，不用管，有的情况是为了可配置，但实际都是 true
+    var isUnaryTag$$1 = options.isUnaryTag || no; // 这个主要是定义那些，<br>对照内写内容都没有什么卵用的标签</br>
     var isFromDOM = options.isFromDOM;
     var index = 0;
     var last, lastTag;
@@ -5819,16 +5834,16 @@
      * 最终是为了输出 ast 结构，这种以一个点展开的 DOM 描述本身就必须要求有一个根节点
      */
     while (html) {
-      debugger;
       last = html;
       /**
        * Make sure we're not in a script or style element
        * isSpecialTag 是检测 style 和 script 的
        * 对于 specialTag 的处理是很有必要的，实际中确实有直接插入 link、script 的情况
+       * 这个 isSpecialTag 其实有缓存技巧的，调用的是 makeArray 然后做的一个闭包的处理
        */
       if (!lastTag || !isSpecialTag(lastTag)) {
         var textEnd = html.indexOf("<");
-        // 这个判断里全都是处理标签节点的情况
+        // 是处理标签节点的情况（不管是结束还是开始，都是 < 开头）
         if (textEnd === 0) {
           // Comment:
           if (/^<!--/.test(html)) {
@@ -5869,22 +5884,33 @@
           /**
            * 看下这个正则 new RegExp("^<\\/" + qnameCapture + "[^>]*>")
            * 好像很简单，以 "</" 开头(^) 中间是标签名，又以 ">" 结尾，后面有或者没有字符(* 重复零次或更多次)
-           * 总的来说以后遇到要写这种，都可以参考这个正则表达式
+           * 以后遇到要写这种，都可以参考这个正则表达式
            *
            * 看下 html.match(endTag) 匹配的结果，第二个参数是 match 匹配到的
            * ["</p>", "p", index: 0, input: "</p></div>", groups: undefined]
            */
+          // TODO 这个晚点看
           var endTagMatch = html.match(endTag);
+          // ↓↓↓ ["</p>", "p", index: 0, input: "</p></div>", groups: undefined]
           if (endTagMatch) {
-            var curIndex = index; // 这个 index 应该是下文会被赋值，再循环中，反复被赋值，用来记录某个位置，为什么不都选 0?
-            // ["</p>", "p", index: 0, input: "</p></div>", groups: undefined]
-            advance(endTagMatch[0].length); // 这个是为了把 while 循环字符串，删掉匹配到的结束标签
+            /**
+             * 这个 index 是说，目前的结束标签 < 节点，在整个 template 中的位置
+             * 其实更本质说，是在记录目前 while 循环在 template string 中的位置
+             * 是在 advance、chars 方法中具体操作的
+             */
+            var curIndex = index;
+            /**
+             * 经过 advance 方法后，curIndex 和 index 不相同了，差值是 endTagMatch[0].length
+             * ↓↓↓ 匹配到了，先删了结束标签
+             */
+            advance(endTagMatch[0].length);
             parseEndTag(endTagMatch[0], endTagMatch[1], curIndex, index);
             continue;
           }
 
           // Start tag:
           var startTagMatch = parseStartTag();
+          // 如果上文返回了一个 AST 的结构，这走这里，感觉这里大概率会进，边界情况是？？？
           if (startTagMatch) {
             handleStartTag(startTagMatch);
             continue;
@@ -5894,7 +5920,7 @@
         /**
          * 到了这里，说明
          * 1. 没有任何 '<' 的标记
-         * 2. 最近的一项不是标签节点
+         * 2. 最近的右边，已经没有标签了，这其实说明这个 text 没有被父节点包起来 ？？?
          */
         var text = void 0;
         if (textEnd >= 0) {
@@ -5902,22 +5928,21 @@
           text = html.substring(0, textEnd);
           advance(textEnd);
         } else {
-          /**
-           * Even You 的这个 while 循环 html 的思路，应该到这里这个 while 是要结束了
-           */
+          // 是不是只有没有被父节点包裹的文本节点才会到这里？？？
           text = html;
-          html = "";
+          html = ""; // 就是遇到没有根节点，结束 while
         }
 
         if (options.chars) {
+          // 一定会进，options 有很多虽然是可以定制化的，但是基本上是不用关注的
           /**
-           * 一定会进，options 有很多虽然是可以定制化的，但是基本上是不用关注的
-           * 这个 chars 方法，其实就是对文本节点的处理
+           * 这个 chars 方法，是对文本节点的处理，也包括了 ' 字符或者空格 {{ }}' 语法的处理
            */
           options.chars(text);
         }
       }
-      // 下面这个判断是处理特殊节点（非标签、文本）
+
+      // 下面这个判断是处理特殊节点（非标签、文本），这段暂时也先不看了吧
       else {
         var stackedTag = lastTag.toLowerCase();
         var reStackedTag =
@@ -5986,7 +6011,7 @@
         while (
           /**
            * 这个 while 用的很有技巧啊
-           * 它和把 html 删成 '' 来做循环是类似的效果
+           * 它和把 html 删成 匹配不到的情况，来做循环
            * Evan You 看来很喜欢用 while 来做循环
            *
            * end match 的这个正则，是为了处理开始标签的 > 对照，前面有空格 '   >' 这种情况下拿到的 > 的坐标
@@ -6005,6 +6030,11 @@
           match.unarySlash = end[1]; // 类似单标签 <div /> 情况的处理，unarySlash 可能是为了标记，方便下文处理
           advance(end[0].length); // 继续删除 html
           match.end = index; // index 是 advance 修改过的全局变量，end 字段也是一个标记为，方便以后的组织
+          /**
+           * 到了这里，一个开始标签里，完整的 attr 结构都会被设置出来
+           * 原来的输入 html 字符串会变成类似这样:  'sdf </div>'，开始标签会被完全裁掉
+           */
+
           return match; // 返回的是一个开始标签的 AST 表述
         }
       }
@@ -6014,6 +6044,7 @@
       var tagName = match.tagName;
       var unarySlash = match.unarySlash;
 
+      // 这个判断是一定会进入的，几乎固定配置
       if (expectHTML) {
         if (lastTag === "p" && isNonPhrasingTag(tagName)) {
           parseEndTag("", lastTag);
@@ -6024,15 +6055,19 @@
       }
 
       var unary =
-        isUnaryTag$$1(tagName) ||
-        (tagName === "html" && lastTag === "head") ||
-        !!unarySlash;
+        isUnaryTag$$1(tagName) || // 是对照里写内容没卵用的标签
+        (tagName === "html" && lastTag === "head") || // 是在 head 里写 html
+        !!unarySlash; // 是个闭合单标签 <div /> (存的是 '/' )
 
       var l = match.attrs.length;
       var attrs = new Array(l);
       for (var i = 0; i < l; i++) {
         var args = match.attrs[i];
-        // hackish work around FF bug https://bugzilla.mozilla.org/show_bug.cgi?id=369778
+        /**
+         * hackish work around FF bug https://bugzilla.mozilla.org/show_bug.cgi?id=369778
+         * FF 2006年的正则 bug , 2014年 closed，可怕。 Evan You 写这个的时候，应该这个 bug 还没关闭
+         * 可以不用管了
+         */
         if (IS_REGEX_CAPTURING_BROKEN && args[0].indexOf('""') === -1) {
           if (args[3] === "") {
             delete args[3];
@@ -6044,10 +6079,11 @@
             delete args[5];
           }
         }
-        var value = args[3] || args[4] || args[5] || "";
+
+        var value = args[3] || args[4] || args[5] || ""; // 取值，取具体属性的值，理论上是取第三条 agrs[3]，边界情况是啥？ JSX 吗？
         attrs[i] = {
           name: args[1],
-          value: isFromDOM
+          value: isFromDOM // TODO，先不看吧，暂时认为是 false
             ? decodeAttr(
                 value,
                 options.shouldDecodeTags,
@@ -6056,20 +6092,28 @@
             : value,
         };
       }
-
       if (!unary) {
+        // stack 是组织了一个完整的数据结构
+        // 感觉按照 while 的这个搞法，可以记录到相邻关系，还能反推出整个树形结构
+        // 这个 stack 和 start 方法里的 stack 不是一个， start 里的更全
         stack.push({ tag: tagName, attrs: attrs });
         lastTag = tagName;
         unarySlash = "";
       }
 
       if (options.start) {
+        // 一定会走到这个方法，这个 start 方法也是比较重要的
         options.start(tagName, attrs, unary, match.start, match.end);
       }
     }
 
     function parseEndTag(tag, tagName, start, end) {
-      var pos;
+      var pos; // 这个是说，上一个对照的起始位置，这个位置是在 stack 数组中的位置
+      /**
+       * 有个疑问？原来用来 while 的 html 其实都删掉了，要位置有啥用
+       * 下文的 end 方法可以解释这个。为了触发一个标签闭合的操作
+       */
+      // 下面两行的意思是，如果不传，则 start 和 end 都赋值成这个标签结束的长度
       if (start == null) {
         start = index;
       }
@@ -6079,6 +6123,9 @@
 
       /**
        * Find the closest opened tag of the same type
+       * 这个很容易想到
+       * 1. 因为 stack 的数据结构，就直接找最近的就是对照了
+       * 2. 自闭合和其他类型是在开始标签里处理的，是上文不会推到 stack 里
        */
       if (tagName) {
         var needle = tagName.toLowerCase();
@@ -6091,29 +6138,33 @@
         /**
          * If no tag name is provided, clean shop
          * 这种是什么情况？没抓到标签？匹配到了 endTag 没抓到标签？
-         * 是为了 JSX 的 '<> </>' 这种类型的吗？大概是为了性能，直接不要走循环然后就设成 0
+         * 是为了 JSX 的 '<> </>' 这种类型的吗
          */
         pos = 0;
       }
-
       if (pos >= 0) {
+        // 在内部 stack 中，对照开始的位置
         /**
          * Close all the open elements, up the stack
          */
         for (var i = stack.length - 1; i >= pos; i--) {
           if (options.end) {
+            // 这里，其实开始 close end 的循环了，end 函数里要 指定好 currentParent、inPre 这些标记位置
             options.end(stack[i].tag, start, end);
           }
         }
 
         // Remove the open elements from the stack
+        // 处理完，删除
         stack.length = pos;
         lastTag = pos && stack[pos - 1].tag;
       } else if (tagName.toLowerCase() === "br") {
+        // 处理 <br />
         if (options.start) {
           options.start(tagName, [], true, start, end);
         }
       } else if (tagName.toLowerCase() === "p") {
+        // ??? 应该不用过多考虑，这写是处理边界情况
         if (options.start) {
           options.start(tagName, [], false, start, end);
         }
@@ -6124,7 +6175,10 @@
     }
   }
 
-  /*  */
+  /**
+   * 这个函数对输入的字符串进行 for loop
+   * 遇到 | 则认为是 filter
+   */
 
   function parseFilters(exp) {
     var inSingle = false;
@@ -6136,34 +6190,44 @@
     var c, prev, i, expression, filters;
 
     for (i = 0; i < exp.length; i++) {
-      prev = c;
-      c = exp.charCodeAt(i);
+      prev = c; // 缓存前一个字符
+      c = exp.charCodeAt(i); // 返回字符串中指定位置字符的 Unicode 编码
       if (inSingle) {
-        // check single quote
+        /**
+         * 0x27: '
+         * 0x5c: /
+         * check single quote
+         * 当前字符是 '，而且不被 / 转义，跳出 '，认为不在 inSingle 里了
+         */
         if (c === 0x27 && prev !== 0x5c) {
           inSingle = !inSingle;
         }
       } else if (inDouble) {
-        // check double quote
+        /**
+         * check double quote
+         * 和 inSingle 的处理一样
+         */
         if (c === 0x22 && prev !== 0x5c) {
           inDouble = !inDouble;
         }
       } else if (
-        c === 0x7c && // pipe
+        c === 0x7c && // pipe 竖线: | ，确定过滤器
         exp.charCodeAt(i + 1) !== 0x7c &&
         exp.charCodeAt(i - 1) !== 0x7c &&
+        // 未被放在任何 () [] {} 中
         !curly &&
         !square &&
         !paren
       ) {
         if (expression === undefined) {
           // first filter, end of expression
-          lastFilterIndex = i + 1;
-          expression = exp.slice(0, i).trim();
+          lastFilterIndex = i + 1; // 最新过滤器函数的起始位置
+          expression = exp.slice(0, i).trim(); // 'test'.slice(0, 4) -> test 赋值要被过滤器过滤的字段
         } else {
           pushFilter();
         }
       } else {
+        // 对涉及到可能运算的关键字进行记录
         switch (c) {
           case 0x22:
             inDouble = true;
@@ -6194,8 +6258,10 @@
     }
 
     if (expression === undefined) {
+      // 没接触到 | 的过滤器指令前，expression 继续赋值成最新的状态
       expression = exp.slice(0, i).trim();
     } else if (lastFilterIndex !== 0) {
+      // 有了 | 过滤器指令
       pushFilter();
     }
 
@@ -6237,27 +6303,52 @@
   });
 
   function parseText(text, delimiters) {
+    /**
+     * 这个方法
+     * 1. 是对 '{{ }}' 语法的处理
+     * 2. bind 的属性值的处理 <Cp1 :value="a">，过滤器处理 <Cp :testValue="a | filterFn"> 等
+     * 3. 输入的 ' {{ }}' 和 bind value 可能是有空格的
+     */
     var tagRE = delimiters ? buildRegex(delimiters) : defaultTagRE;
     if (!tagRE.test(text)) {
+      // 如果不是 '{{ }} [] ()' 这种计算的，直接返回 undefined 作为普通文本看
       return;
     }
     var tokens = [];
+
+    /**
+     * tagRE 的 lastIndex 是 '  {{ 'asdfsafd' }}  ' 是这个输入串的长度，包含空格
+     * 每次都变成 0 ？？？
+     */
+
     var lastIndex = (tagRE.lastIndex = 0);
     var match, index;
+    /**
+     * 匹配到的 match 类似于 ['{{ 'asdfsafd' }}', " 'asdfsafd' "]，match.index = 0
+     * match 是出去 {} 两边空格的情况，index 是被除去的空格
+     */
     while ((match = tagRE.exec(text))) {
-      index = match.index;
+      index = match.index; // 如果 { 前面没空格的情况，那就是 0
       // push text token
       if (index > lastIndex) {
+        // 没空格，不会到这里，感觉 token 是存 {{ 前面的值，包括空格
         tokens.push(JSON.stringify(text.slice(lastIndex, index)));
       }
-      // tag token
+      /**
+       * tag token
+       * 走过过滤器方法，返回的是这样的：
+       * "_f("a")(branches.join())"
+       */
       var exp = parseFilters(match[1].trim());
+
       tokens.push("_s(" + exp + ")");
       lastIndex = index + match[0].length;
     }
     if (lastIndex < text.length) {
+      // 试了很多次，一般这个判断不走，边界情况是？？？
       tokens.push(JSON.stringify(text.slice(lastIndex)));
     }
+    // 一般会返回这么一个东西: '_s(branches.join())'、'"_s(_f("a")(branches.join()))"'
     return tokens.join("+");
   }
 
@@ -6364,7 +6455,7 @@
   /**
    * cached 是为了减少 dom 操作
    * 减少 decodeHTML 中的 innerHTML 赋值
-   * 因为这个方法是唯一 key 吐出 唯一结果，所以整个 VUE 实例中用的都是一个闭包引用
+   * 无副作用函数，唯一输入，吐出唯一结果，所以整个 VUE 实例中用的都是一个闭包引用
    */
   var decodeHTMLCached = cached(decodeHTML);
 
@@ -6394,7 +6485,7 @@
     var preserveWhitespace = options.preserveWhitespace !== false;
     var root;
     var currentParent;
-    var inVPre = false;
+    var inVPre = false; // 判断是否是在 v-pre 指令中的文本内容
     var inPre = false;
     var warned = false;
     parseHTML(template, {
@@ -6406,27 +6497,32 @@
       start: function start(tag, attrs, unary) {
         // check namespace.
         // inherit parent ns if there is one
+        // 拿命名空间，大部分情况下应该都是默认值，不用关心
         var ns =
           (currentParent && currentParent.ns) || platformGetTagNamespace(tag);
 
         // handle IE svg bug
         /* istanbul ignore if */
+        // IE 处理 SVG 的 bug，这个已经可以不考虑了，现在这个时代
         if (options.isIE && ns === "svg") {
           attrs = guardIESVGBug(attrs);
         }
 
+        // 初始化要输出的节点
         var element = {
-          type: 1,
+          type: 1, // 都作为开始标签了，类型一定是这个
           tag: tag,
           attrsList: attrs,
-          attrsMap: makeAttrsMap(attrs),
+          attrsMap: makeAttrsMap(attrs), // 对象形式的 attrs，可能是为了方便之后处理
           parent: currentParent,
           children: [],
         };
+
         if (ns) {
           element.ns = ns;
         }
-
+        // 感觉理论上 isForbiddenTag 永远为 false，因为上文已经分流了这个情况
+        // 边界情况是？？？
         if ("client" !== "server" && isForbiddenTag(element)) {
           element.forbidden = true;
           "development" !== "production" &&
@@ -6440,22 +6536,28 @@
         }
 
         // apply pre-transforms
+        // TODO，无法领悟是干嘛的，不过感觉不影响大流程，大部分情况都走不到这里
         for (var i = 0; i < preTransforms.length; i++) {
           preTransforms[i](element, options);
         }
 
         if (!inVPre) {
-          processPre(element);
+          processPre(element); // 判断是否在 v-pre 指令中，这个方法里还会 set
           if (element.pre) {
             inVPre = true;
           }
         }
+
         if (platformIsPreTag(element.tag)) {
+          // 是否在 pre 标签中，在 end 里，他会重置成 false
           inPre = true;
         }
+
         if (inVPre) {
+          // 如果 v-pre 设置 attr，不做任何指令、动态内容的翻译
           processRawAttrs(element);
         } else {
+          // TODO 处理指令和 attr 动态内容，晚点具体看？？？
           processFor(element);
           processIf(element);
           processOnce(element);
@@ -6497,9 +6599,10 @@
 
         // tree management
         if (!root) {
-          root = element;
-          checkRootConstraints(root);
+          root = element; // 没有的话，当前元素写成根
+          checkRootConstraints(root); // 因为这个都是开始标签了，开始标签的第一次，跑这里来是没问题的
         } else if ("development" !== "production" && !stack.length && !warned) {
+          // 平铺节点，没有根节点的，基本都到这里了
           // allow 2 root elements with v-if and v-else
           if (
             root.attrsMap.hasOwnProperty("v-if") &&
@@ -6516,32 +6619,50 @@
         }
         if (currentParent && !element.forbidden) {
           if (element.else) {
+            // 处理 else 可以看下具体实现，比较简单
             processElse(element, currentParent);
           } else {
+            // 组织当前元素
             currentParent.children.push(element);
             element.parent = currentParent;
           }
         }
+        /**
+         * 组织一个 stack 结构，这个结构下文方法有用到
+         * 6090行附近的 'stack.push(' 方法有对这个结构的解释
+         *
+         * 因为这里是处理 unary 类型的 打开标签
+         * 所以这个 currentParent 就是当前 element
+         */
         if (!unary) {
           currentParent = element;
           stack.push(element);
         }
         // apply post-transforms
+        // 没看懂意思，TODO 吧 ？？？
         for (var i$2 = 0; i$2 < postTransforms.length; i$2++) {
           postTransforms[i$2](element, options);
         }
       },
 
       end: function end() {
+        // 这个函数会 trailing whitespace，然后指定好 currentParent、inVPre、pre 给下个 while 用
         // remove trailing whitespace
         var element = stack[stack.length - 1];
+        /**
+         * 这里可以想一下，这个 stack
+         * 首先它是按照顺序入栈的，第一个节点记录了全量节点，最后一个记录的是最小的节点
+         * 所以这里取的是 lastNode
+         */
         var lastNode = element.children[element.children.length - 1];
         /**
-         * 下文这个判断没看懂，没想到使用场景
          * vue 后期版本里改成了：lastNode && lastNode.type === 3 && lastNode.text === " " && !inPre
          */
         if (lastNode && lastNode.type === 3 && lastNode.text === " ") {
           element.children.pop();
+          /**
+           * 如果是空字符串，从最后一个节点的 children 删了，我理解整个 stack 是引用的关系，会全删除
+           */
         }
 
         /**
@@ -6560,8 +6681,9 @@
       },
 
       chars: function chars(text) {
-        // 这个方法就是对文本节点的处理
+        // 这个方法就是对文本节点、'{{ }}' 语法的处理
         if (!currentParent) {
+          // 上文会调用 start 方法中定义的 currentParent
           // 如果当前文本节点没有父节点，需要抛出警告
           if ("development" !== "production" && !warned) {
             warned = true;
@@ -6575,30 +6697,34 @@
 
         text =
           /**
-           * 1. 在 pre 中的空白符是有意义的，不需要 trim
-           * 2. 其他文本 trim 完之后在做处理
-           * 3. 二者都是使用上文 decodeHTML 方法中的 innerHTML = html; 然后 decoder.textContent 取值出来
-           * 4. 主要是为了处理文本节点，转义问题: "&lt;b&gt;asdfasdf &lt;&#47;b&gt;" -> "<b>asdfasdf </b>"
+           * 1. 使用上文 decodeHTML 方法中的 innerHTML = html; 然后 decoder.textContent 取值出来
+           * 2. 主要是为了处理文本节点，转义问题: "&lt;b&gt;asdfasdf &lt;&#47;b&gt;" -> "<b>asdfasdf </b>"
            */
           inPre || text.trim()
-            ? decodeHTMLCached(text) // 这个方法里，用的一个闭包缓存的技巧，可以看看，很实用，以后可以抄一下 mark
+            ? decodeHTMLCached(text) // 这个方法里，用的一个闭包缓存纯函数的方法，以后可以抄一下
             : /**
              * only preserve whitespace if its not right after a starting tag
              * 展开说一下，能走到这里说明：
              * 1. 一定是多个空白符被 trim
-             * 2. html 中单个空白符是有排版意义的，所以preserveWhitespace 默认是 true
-             * 3. 如果没有兄弟节点，其实这个空白符就没意义
+             * 2. html 中单个空白符是有排版意义的，所以 preserveWhitespace 默认是 true
+             * 3. 最左边没有兄弟节点的空白符没有意义
+             * 不得不说，这个 while 循环（我的意思是 currentParent 在上文 push 了 children）很厉害，最左边兄弟节点的情况很自然就考虑进去了
              */
             preserveWhitespace && currentParent.children.length
             ? " "
             : "";
 
         if (text) {
-          debugger;
+          // 如果是 '' 就不添加子节点
           var expression;
+          // inVPre 是 v-pre 指令，不用编译，直接显示文本
           if (
             !inVPre &&
             text !== " " &&
+            /**
+             * 这个判断，是处理 ' 空格或者文本  {{  }}' 表达式用的
+             * type 应该暂定为 2，赋值 expression，之后具体处理的时候会变成文本节点
+             */
             (expression = parseText(text, delimiters))
           ) {
             currentParent.children.push({
@@ -6616,10 +6742,18 @@
         }
       },
     });
+    /*
+     * currentParent 改的是引用
+     * 这个返回值看起来没用到，都是改的引用
+     */
     return root;
   }
 
   function processPre(el) {
+    /**
+     * v-pre，主要是为了这个指令，跳过 {{ }}、指令的翻译，直接渲染
+     * https://v3.vuejs.org/api/directives.html#v-pre
+     */
     if (getAndRemoveAttr(el, "v-pre") != null) {
       el.pre = true;
     }
@@ -6628,6 +6762,10 @@
   function processRawAttrs(el) {
     var l = el.attrsList.length;
     if (l) {
+      /**
+       * 直接改原引用的 attr，而且不会做任何属性值的翻译
+       * 主要场景用在 v-pre 中
+       */
       var attrs = (el.attrs = new Array(l));
       for (var i = 0; i < l; i++) {
         attrs[i] = {
@@ -6636,7 +6774,10 @@
         };
       }
     } else if (!el.pre) {
-      // non root node in pre blocks with no attributes
+      /**
+       * 这个边界情况，没找到资料，感觉是不需要额外关注的
+       * non root node in pre blocks with no attributes
+       */
       el.plain = true;
     }
   }
@@ -6696,6 +6837,7 @@
   }
 
   function processElse(el, parent) {
+    // 可以看下这个方法，解释了为什么 v-if 和 v-else 要放在一起
     var prev = findPrevElement(parent.children);
     if (prev && prev.if) {
       prev.elseBlock = el;
@@ -7751,7 +7893,11 @@
     // detect possible CSP restriction
     /* istanbul ignore if */
     {
+      // 不用考虑
       try {
+        // https://cn.vuejs.org/v2/guide/installation.html#CSP-%E7%8E%AF%E5%A2%83
+        // 有些环境，如 Google Chrome Apps，会强制应用内容安全策略 (CSP)，不能使用 new Function() 对表达式求值。
+        // 这时可以用 CSP 兼容版本。完整版本依赖于该功能来编译模板，所以无法在这些环境下使用。
         new Function("return 1");
       } catch (e) {
         if (e.toString().match(/unsafe-eval|CSP/)) {
@@ -7797,6 +7943,7 @@
         );
       }
     }
+    // 缓存并返回一个这么一个近似的对象: { render: Function, staticRenderFns: [Function] }
     return (cache[key] = res);
   }
 
@@ -7837,7 +7984,7 @@
         if (typeof template === "string") {
           if (template.charAt(0) === "#") {
             isFromDOM = true;
-            template = idToTemplate(template);
+            template = idToTemplate(template); // 直接inner
           }
         } else if (template.nodeType) {
           isFromDOM = true;
