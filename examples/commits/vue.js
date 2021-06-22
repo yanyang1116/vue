@@ -1,3 +1,4 @@
+/* eslint-disable */
 /*!
  * Vue.js v2.0.0
  * (c) 2014-2016 Evan You
@@ -1965,6 +1966,7 @@
     return new vnodeComponentOptions.Ctor(options);
   }
 
+  // 似乎不会执行，全文都没有
   function init(vnode, hydrating) {
     if (!vnode.child || vnode.child._isDestroyed) {
       var child = (vnode.child = createComponentInstanceForVnode(
@@ -6467,7 +6469,7 @@
   var preTransforms;
   var transforms;
   var postTransforms;
-  var delimiters;
+  var delimiters; // https://vuejs.org/v2/api/#delimiters 自定义分隔符
 
   /**
    * Convert HTML string to AST.
@@ -6481,6 +6483,7 @@
     transforms = pluckModuleFunction(options.modules, "transformNode");
     postTransforms = pluckModuleFunction(options.modules, "postTransformNode");
     delimiters = options.delimiters;
+
     var stack = [];
     var preserveWhitespace = options.preserveWhitespace !== false;
     var root;
@@ -6488,6 +6491,7 @@
     var inVPre = false; // 判断是否是在 v-pre 指令中的文本内容
     var inPre = false;
     var warned = false;
+    // parseHTML 编译模块的核心代码，parseHTML 中，会大量用到 parse 函数中的上文
     parseHTML(template, {
       expectHTML: options.expectHTML,
       isUnaryTag: options.isUnaryTag,
@@ -7483,7 +7487,7 @@
    * Compile a template.
    */
   function compile$1(template, options) {
-    var ast = parse(template.trim(), options);
+    var ast = parse(template.trim(), options); // 最核心的编译方法
     optimize(ast, options);
     var code = generate(ast, options);
     return {
@@ -7893,11 +7897,12 @@
     // detect possible CSP restriction
     /* istanbul ignore if */
     {
-      // 不用考虑
+      /**
+       * // https://cn.vuejs.org/v2/guide/installation.html#CSP-%E7%8E%AF%E5%A2%83
+       * 有些环境，如 Google Chrome Apps，会强制应用内容安全策略 (CSP)，不能使用 new Function() 对表达式求值
+       * 不需要考虑
+       */
       try {
-        // https://cn.vuejs.org/v2/guide/installation.html#CSP-%E7%8E%AF%E5%A2%83
-        // 有些环境，如 Google Chrome Apps，会强制应用内容安全策略 (CSP)，不能使用 new Function() 对表达式求值。
-        // 这时可以用 CSP 兼容版本。完整版本依赖于该功能来编译模板，所以无法在这些环境下使用。
         new Function("return 1");
       } catch (e) {
         if (e.toString().match(/unsafe-eval|CSP/)) {
@@ -7911,15 +7916,21 @@
         }
       }
     }
+
     var key =
-      options && options.delimiters
+      options && options.delimiters // options.delimiters 大多数情况下都是没有的，不用考虑，可能是为了制定 {{}} 的符号
         ? String(options.delimiters) + template
         : template;
+
     if (cache[key]) {
+      // 如果缓存中有完整的匹配，自己返回结果，cache 换 key -> value 的闭包缓存方法
+      // 直接返回编译结果
       return cache[key];
     }
     var res = {};
-    var compiled = compile$$1(template, options);
+    var compiled = compile$$1(template, options); // compile$$1 是最核心的编译方法，有大量的内容
+
+    // 下文关于输出结果先不看，直接看 compile$$1
     res.render = makeFunction(compiled.render);
     var l = compiled.staticRenderFns.length;
     res.staticRenderFns = new Array(l);
@@ -7955,16 +7966,16 @@
     }
   }
 
-  /*  */
-
+  // 查询 dom id 中的 innerHTML 并缓存
   var idToTemplate = cached(function (id) {
     var el = query(id);
     return el && el.innerHTML;
   });
 
   var mount = Vue$3.prototype.$mount;
+  // 此处定义 $mount 生命钩子
   Vue$3.prototype.$mount = function (el, hydrating) {
-    el = el && query(el);
+    el = el && query(el); // 挂载的 el string
 
     /* istanbul ignore if */
     if (el === document.body || el === document.documentElement) {
@@ -7977,16 +7988,19 @@
 
     var options = this.$options;
     // resolve template/el and convert to render function
+    // 没有 render 函数，对 template 做处理 ↓↓↓
     if (!options.render) {
       var template = options.template;
       var isFromDOM = false;
       if (template) {
         if (typeof template === "string") {
+          // template 字段支持直接传 id
           if (template.charAt(0) === "#") {
             isFromDOM = true;
-            template = idToTemplate(template); // 直接inner
+            template = idToTemplate(template);
           }
         } else if (template.nodeType) {
+          // 支持传 dom 引用给 template
           isFromDOM = true;
           template = template.innerHTML;
         } else {
@@ -7996,10 +8010,15 @@
           return this;
         }
       } else if (el) {
+        /**
+         * 什么意思啊？没有 template，自动使用挂在点里的内容？试了一下确实如此
+         * getOuterHTML 没有关注的必要，这个判断本身也没价值，没有实际场景，只是一个补完
+         **/
         isFromDOM = true;
         template = getOuterHTML(el);
       }
       if (template) {
+        // compileToFunctions > compile$$1 > compile$1 > parse 方法是核心方法
         var ref = compileToFunctions(
           template,
           {
@@ -8011,18 +8030,24 @@
           },
           this
         );
+        // ref 是核心方法的运算结果值
         var render = ref.render;
         var staticRenderFns = ref.staticRenderFns;
+        // 挂到 opt 上准备干吗？？？
         options.render = render;
         options.staticRenderFns = staticRenderFns;
       }
     }
+    // template 编译完之后，走 mounted 方法
     return mount.call(this, el, hydrating);
   };
 
   /**
    * Get outerHTML of elements, taking care
    * of SVG elements in IE as well.
+   * 这个是说，当 vue template 选项没写的时候，用 el 挂在点内的内容去填充
+   * outerHTML 没有，是有些浏览器的一些节点可能没有？ IE SVG？
+   * 所以去 hack 一下，这个方法没有关注的必要
    */
   function getOuterHTML(el) {
     if (el.outerHTML) {

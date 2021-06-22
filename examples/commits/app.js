@@ -11,7 +11,6 @@ var demo = new Vue({
     // currentBranch: "master",
     // commits: null,
   },
-
   // template: `afdsdf<! --文本部分 -->`,
   // template: `<div class="test" value =  "what" >123123</div>`,
   // template: `<div class="test" value =  "what" />`,
@@ -27,8 +26,10 @@ var demo = new Vue({
   // template: `<div class="123" :style="[{ transform: 'rotate(7deg)' }]">asdfasdf</div>`,
   // template: `<div><span>ddd</span></div>`,
   // template: `<div>{{ branches.join() | a }}</div>`,
-  template: `<div><span>test</span></div>`,
+  // template: `<div><span>test</span></div>`,
+  // template: `1`,
   // template: `#test`,
+  template: `<div>asdfasdf</div>`,
 
   created: function () {
     // this.fetchData();
