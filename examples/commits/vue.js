@@ -166,6 +166,7 @@
 
   /**
    * Mix properties into target object.
+   * 就是 assgin
    */
   function extend(to, _from) {
     for (var key in _from) {
@@ -434,6 +435,7 @@
     // completely stops working after triggering a few times... so, if native
     // Promise is available, we will use it:
     /* istanbul ignore if */
+    // 在支持 Promise 的原生情况下
     if (typeof Promise !== "undefined" && isNative(Promise)) {
       var p = Promise.resolve();
       timerFunc = function () {
@@ -3520,8 +3522,8 @@
 
   // HTML5 tags https://html.spec.whatwg.org/multipage/indices.html#elements-3
   // Phrasing Content https://html.spec.whatwg.org/multipage/dom.html#phrasing-content
-  // 不是很懂 https://developer.mozilla.org/zh-CN/docs/Web/Guide/HTML/Content_categories
-  // 看起来好像是说，标签语义化的一些东西，但是对我们 vue 处理东西有实际意义吗？
+  // https://developer.mozilla.org/zh-CN/docs/Web/Guide/HTML/Content_categories
+  // 说的是一些语义化标签，这些标签被 p 标签包裹的时候标签会脱离 p 标签
   var isNonPhrasingTag = makeMap(
     "address,article,aside,base,blockquote,body,caption,col,colgroup,dd," +
       "details,dialog,div,dl,dt,fieldset,figcaption,figure,footer,form," +
@@ -5825,12 +5827,20 @@
    * 直到 template 为 '' 停止循环，最终输出 ast tree
    */
   function parseHTML(html, options) {
-    var stack = []; // 大概会被组织成这样：{ attrsList: [], attrsMap: {}, children: [{…}], parent: undefined, plain: true, tag: "div", type: 1 }
-    var expectHTML = options.expectHTML; // 都是 true，不用管，有的情况是为了可配置，但实际都是 true
-    var isUnaryTag$$1 = options.isUnaryTag || no; // 这个主要是定义那些，<br>对照内写内容都没有什么卵用的标签</br>
+    /**
+     * 这个 stack 也很重要，是内部的 stack，用来组织数据
+     * 和调用他的 parse 中的 stack 是有区别的
+     * 
+     * 它记录的只是一个平行关系，类似这样（开始标签是这样的，结束的时候不知会不会增加属性）：
+     * 0: {tag: "div", attrs: Array(0)}
+     * 1: {tag: "span", attrs: Array(0)}
+     */ 
+    var stack = [];
+    var expectHTML = options.expectHTML; // 都是 true
+    var isUnaryTag$$1 = options.isUnaryTag || no; // 这个主要是定义类似这种：<br>对照内写内容都没有什么卵用的标签</br>
     var isFromDOM = options.isFromDOM;
     var index = 0;
-    var last, lastTag;
+    var last, lastTag; // 这个要搞清楚
     /**
      * 为什么一定要有一个根节点，我觉得最大的原因是：
      * 最终是为了输出 ast 结构，这种以一个点展开的 DOM 描述本身就必须要求有一个根节点
@@ -5839,13 +5849,11 @@
       last = html;
       /**
        * Make sure we're not in a script or style element
-       * isSpecialTag 是检测 style 和 script 的
-       * 对于 specialTag 的处理是很有必要的，实际中确实有直接插入 link、script 的情况
-       * 这个 isSpecialTag 其实有缓存技巧的，调用的是 makeArray 然后做的一个闭包的处理
+       * isSpecialTag 是检测 style 和 script 的，这个场景其实不多吧
        */
       if (!lastTag || !isSpecialTag(lastTag)) {
         var textEnd = html.indexOf("<");
-        // 是处理标签节点的情况（不管是结束还是开始，都是 < 开头）
+        // 这个判断是处理标签节点的情况（不管是结束还是开始，都是 < 开头）
         if (textEnd === 0) {
           // Comment:
           if (/^<!--/.test(html)) {
@@ -5882,16 +5890,15 @@
             continue;
           }
 
+          // 先看下 startTag 的处理
           // End tag:
           /**
            * 看下这个正则 new RegExp("^<\\/" + qnameCapture + "[^>]*>")
            * 好像很简单，以 "</" 开头(^) 中间是标签名，又以 ">" 结尾，后面有或者没有字符(* 重复零次或更多次)
-           * 以后遇到要写这种，都可以参考这个正则表达式
            *
            * 看下 html.match(endTag) 匹配的结果，第二个参数是 match 匹配到的
            * ["</p>", "p", index: 0, input: "</p></div>", groups: undefined]
            */
-          // TODO 这个晚点看
           var endTagMatch = html.match(endTag);
           // ↓↓↓ ["</p>", "p", index: 0, input: "</p></div>", groups: undefined]
           if (endTagMatch) {
@@ -5912,7 +5919,19 @@
 
           // Start tag:
           var startTagMatch = parseStartTag();
-          // 如果上文返回了一个 AST 的结构，这走这里，感觉这里大概率会进，边界情况是？？？
+          /**
+           * 返回的是一个开始标签的表述，类似这样：
+           * {
+           *     tagName: start[1],
+           *     attrs: [],
+           *     start: index,
+           *     index
+           *     end
+           *     unarySlash
+           *     ...
+           * } 
+           */
+          // 一般都会进
           if (startTagMatch) {
             handleStartTag(startTagMatch);
             continue;
@@ -5997,72 +6016,126 @@
       /**
        * 这个函数作用值匹配开始标签，组织一个该开始标签对照的 AST 描述并且返回
        * startTagOpen 是一个标签开始对照的正则表达式
-       * match 到的结果是这样的: ['<div', 'div', 0, ...]
+       * // 返回的是这么一个 array:
+       * // 0: "<div"
+       * // 1: "div"
+       * // groups: undefined
+       * // index: 0
+       * // input: "<div><span>测试</span></div>"
+       * // length: 2
        */
       var start = html.match(startTagOpen);
-      // 理论上这个判断一定会有???
+      
+      // 一定会有
       if (start) {
         var match = {
           tagName: start[1],
           attrs: [],
           start: index,
         };
-        // 从 html 中删除匹配到的开始标签对照的开始部分，处理后的结果类似于: (" class="test" value="what">demo</div>")
+        // 从 html 中删除匹配到的开始标签对照的开始部分，处理后的结果类似于: " class="test" value="what">demo</div>"
         advance(start[0].length);
         var end, attr;
         while (
           /**
-           * 这个 while 用的很有技巧啊
-           * 它和把 html 删成 匹配不到的情况，来做循环
-           * Evan You 看来很喜欢用 while 来做循环
-           *
-           * end match 的这个正则，是为了处理开始标签的 > 对照，前面有空格 '   >' 这种情况下拿到的 > 的坐标
-           * 这个判断是把没有任何 attr 的情况给排除掉，同时又作为是否要进入去 push attr 的一个判断条件
+           * 这个 while 用的很有技巧，Evan You 看来很喜欢用 while 来做循环
+           * end match 的这个正则，是为了拿到 " class="test" value="what">demo</div>" 这个开口情况下开口位置到 ">" 的情况：
+           * // 0: ">"
+           * // 1: ""
+           * // groups: undefined
+           * // index: 0
+           * // input: ">测试</span></div>"
+           * // length: 2
+           * 
+           * attr 的正则结果大概长这样：
+           * // 0: " class=\"tt\""
+           * // 1: "class"
+           * // 2: "="
+           * // 3: "tt"
+           * // 4: undefined
+           * // 5: undefined
+           * // groups: undefined
+           * // index: 0
+           * 
+           * 这个 while 的进入条件是【没匹配】到【开始标签的闭合标签】而且【匹配到了属性】
+           * 进入后，把 match 到的 attr 推到当前对象的 attr 属性里，等待处理
+           * 然后 html 里删了这个 attr，再做循环
            */
-          !(end = html.match(startTagClose)) &&
-          // attr match 匹配的是类似于这样的 [" class="test"", "class", "=", "test", undefined, undefined, index: 0, ...]
+          !(end = html.match(startTagClose)) && // /^\s*(\/?)>/ 正则是这样的
           (attr = html.match(attribute))
         ) {
           advance(attr[0].length); // 删除 html 中的这个属性，以便于下次循环
           // 符合判断，往 attrs 数组中推，是 match 到的数组，下文处理 attr 的相关模块会处理
           match.attrs.push(attr);
         }
-        // 理论上一定会进入???
+        // 肯定会进
         if (end) {
-          match.unarySlash = end[1]; // 类似单标签 <div /> 情况的处理，unarySlash 可能是为了标记，方便下文处理
+          match.unarySlash = end[1]; // 类似单标签 <div /> 情况的处理，unarySlash 是为了标记，方便下文处理
           advance(end[0].length); // 继续删除 html
           match.end = index; // index 是 advance 修改过的全局变量，end 字段也是一个标记为，方便以后的组织
+          // 到了这里，这个 start 标签就是处理完了，开始标签会被完全裁掉
+          return match; 
           /**
-           * 到了这里，一个开始标签里，完整的 attr 结构都会被设置出来
-           * 原来的输入 html 字符串会变成类似这样:  'sdf </div>'，开始标签会被完全裁掉
+           * 返回的是一个开始标签的表述，类似这样：
+           * {
+           *     tagName: start[1],
+           *     attrs: [],
+           *     start: index,
+           *     index
+           *     end
+           *     unarySlash
+           *     ...
+           * }
            */
-
-          return match; // 返回的是一个开始标签的 AST 表述
         }
       }
     }
 
     function handleStartTag(match) {
+      /**
+       * 入参长这个样子：
+       * {
+       *     tagName: start[1],
+       *     attrs: [],
+       *     start: index,
+       *     index
+       *     end
+       *     unarySlash
+       *     ...
+       * }
+       */
       var tagName = match.tagName;
       var unarySlash = match.unarySlash;
 
-      // 这个判断是一定会进入的，几乎固定配置
+      // 肯定进，这个判断里的两种情况，可以先不考虑，很少见会这么写的
       if (expectHTML) {
+        /**
+         * 被 p 标签包裹的，isNonPhrasingTag 的标签会脱离 p 的包裹
+         * 这个不考虑了吧
+         * isNonPhrasingTag 可以戳开了解一下
+         */ 
         if (lastTag === "p" && isNonPhrasingTag(tagName)) {
           parseEndTag("", lastTag);
         }
+        /**
+         * 这个不考虑了吧
+         * 这个是特殊情况，具体可以戳开 canBeLeftOpenTag 看一下
+         * 不同系统的行为好像也不一样
+         * 可以戳开看下 canBeLeftOpenTag
+         */
         if (canBeLeftOpenTag(tagName) && lastTag === tagName) {
           parseEndTag("", tagName);
         }
       }
 
       var unary =
-        isUnaryTag$$1(tagName) || // 是对照里写内容没卵用的标签
+        isUnaryTag$$1(tagName) || // 对照里写内容没卵用的标签
         (tagName === "html" && lastTag === "head") || // 是在 head 里写 html
-        !!unarySlash; // 是个闭合单标签 <div /> (存的是 '/' )
+        !!unarySlash; // 是个闭合单标签 <div /> (基本上都是 '/' )
 
       var l = match.attrs.length;
       var attrs = new Array(l);
+      // 这里是对一个开合标签中的 attr 进行处理的逻辑
       for (var i = 0; i < l; i++) {
         var args = match.attrs[i];
         /**
@@ -6081,11 +6154,12 @@
             delete args[5];
           }
         }
-
-        var value = args[3] || args[4] || args[5] || ""; // 取值，取具体属性的值，理论上是取第三条 agrs[3]，边界情况是啥？ JSX 吗？
+        // 取值，取具体属性的值，理论上是取第4条 agrs[3]，没想到 4 和 5 的情况，可能是有上文 FF bug 的情况，不需要关注
+        var value = args[3] || args[4] || args[5] || "";
+        // 之前 attr 是数组里 match 的数组，这里组织成数组里 name -> value 的形式
         attrs[i] = {
           name: args[1],
-          value: isFromDOM // TODO，先不看吧，暂时认为是 false
+          value: isFromDOM // 不用过多关注这种情况，因为拿的是 innerHTML 所以需要 decode
             ? decodeAttr(
                 value,
                 options.shouldDecodeTags,
@@ -6094,17 +6168,18 @@
             : value,
         };
       }
-      if (!unary) {
-        // stack 是组织了一个完整的数据结构
-        // 感觉按照 while 的这个搞法，可以记录到相邻关系，还能反推出整个树形结构
-        // 这个 stack 和 start 方法里的 stack 不是一个， start 里的更全
+      if (!unary) {  // 这里是说，【不可以】直接闭合的情况
+        // 往上文的 stack 中推入
         stack.push({ tag: tagName, attrs: attrs });
-        lastTag = tagName;
-        unarySlash = "";
+        lastTag = tagName; // 上层环境中的变量，是表示最近的开口标签是什么，记录关系
+        unarySlash = ""; // 如果是闭合标签的情况下，清空上文这个标记位？？？清一下问题也不大
       }
-
+      /**
+       * 一定会走到这个方法，这个 start 方法也是比较重要的
+       * 这个方法三个参数：tagName, attrs, unary
+       * 其他两个是多余的
+       */
       if (options.start) {
-        // 一定会走到这个方法，这个 start 方法也是比较重要的
         options.start(tagName, attrs, unary, match.start, match.end);
       }
     }
@@ -6166,7 +6241,7 @@
           options.start(tagName, [], true, start, end);
         }
       } else if (tagName.toLowerCase() === "p") {
-        // ??? 应该不用过多考虑，这写是处理边界情况
+        // ？？？ 应该不用过多考虑，这写是处理边界情况
         if (options.start) {
           options.start(tagName, [], false, start, end);
         }
@@ -6359,7 +6434,14 @@
   function baseWarn(msg) {
     console.error("[Vue parser]: " + msg);
   }
-
+  
+  /**
+   * 目前入参： 
+   * modules：[klass$1, style$1]
+   * key：有 transformNode、preTransformNode、postTransformNode 这几个情况
+   * modules 默认入参 [klass$1, style$1]
+   * 目前看下来，这个函数默认情况下都是默认返回空数组
+   */
   function pluckModuleFunction(modules, key) {
     return modules
       ? modules
@@ -6373,6 +6455,7 @@
   }
 
   function addProp(el, name, value) {
+    // 挺骚的，新建并推入
     (el.props || (el.props = [])).push({ name: name, value: value });
   }
 
@@ -6390,19 +6473,32 @@
   }
 
   function addHandler(el, name, value, modifiers, important) {
-    // check capture modifier
+    // addHandler(el, name, value, modifiers);
+    /** 
+     * 捕获模式
+     * 再常规事件处理顺序上，会优先处理增加了这个修饰符的事件
+     * 换句话说，可以调整一个嵌套结构中，事件的执行顺序
+     */ 
     if (modifiers && modifiers.capture) {
+      // 做一个标记吧，方便下文处理
       delete modifiers.capture;
       name = "!" + name; // mark the event as captured
     }
     var events;
+    /**
+     * 先初始化一个原生事件列表或者，普通事件列表
+     * 这个列表挂在整个 el ast 上的，会伴随整个周期
+     */
     if (modifiers && modifiers.native) {
       delete modifiers.native;
       events = el.nativeEvents || (el.nativeEvents = {});
     } else {
       events = el.events || (el.events = {});
     }
+
+    // 修饰符和执行函数组成的对象
     var newHandler = { value: value, modifiers: modifiers };
+
     var handlers = events[name];
     /* istanbul ignore if */
     if (Array.isArray(handlers)) {
@@ -6417,6 +6513,10 @@
   }
 
   function getBindingAttr(el, name, getStatic) {
+    /**
+     * 这个方法比 getAndRemoveAttr 多了一层 v-bind 和 : 的判断
+     * 还有一个获取静态值的参数，应该不用关心
+     */ 
     var dynamicValue =
       getAndRemoveAttr(el, ":" + name) ||
       getAndRemoveAttr(el, "v-bind:" + name);
@@ -6431,6 +6531,7 @@
   }
 
   function getAndRemoveAttr(el, name) {
+    // 判断是否有，拿到并且返回，然后从 arrtsList 中删除
     var val;
     if ((val = el.attrsMap[name]) != null) {
       var list = el.attrsList;
@@ -6476,15 +6577,15 @@
    */
   function parse(template, options) {
     warn$1 = options.warn || baseWarn;
-    platformGetTagNamespace = options.getTagNamespace || no;
-    platformMustUseProp = options.mustUseProp || no;
-    platformIsPreTag = options.isPreTag || no;
-    preTransforms = pluckModuleFunction(options.modules, "preTransformNode");
-    transforms = pluckModuleFunction(options.modules, "transformNode");
-    postTransforms = pluckModuleFunction(options.modules, "postTransformNode");
+    platformGetTagNamespace = options.getTagNamespace || no; // 命名空间感觉没啥用，不用关注
+    platformMustUseProp = options.mustUseProp || no; // "value, selected, checked, muted"
+    platformIsPreTag = options.isPreTag || no; // 一般都是 false
+    preTransforms = pluckModuleFunction(options.modules, "preTransformNode"); // 默认 []，不需要关心
+    transforms = pluckModuleFunction(options.modules, "transformNode"); // 默认 []，不需要关心
+    postTransforms = pluckModuleFunction(options.modules, "postTransformNode"); // 默认 []，不需要关心
     delimiters = options.delimiters;
 
-    var stack = [];
+    var stack = []; // 这个是一个缓存栈，是编译方法中最外层的缓存栈，非常重要
     var preserveWhitespace = options.preserveWhitespace !== false;
     var root;
     var currentParent;
@@ -6493,10 +6594,10 @@
     var warned = false;
     // parseHTML 编译模块的核心代码，parseHTML 中，会大量用到 parse 函数中的上文
     parseHTML(template, {
-      expectHTML: options.expectHTML,
-      isUnaryTag: options.isUnaryTag,
-      isFromDOM: options.isFromDOM,
-      shouldDecodeTags: options.shouldDecodeTags,
+      expectHTML: options.expectHTML, // 都是 true
+      isUnaryTag: options.isUnaryTag, // 这个主要是定义那些，<br>对照内写内容都没有什么卵用的标签</br>
+      isFromDOM: options.isFromDOM, // 是否是取的节点，基本不会有这种情况
+      shouldDecodeTags: options.shouldDecodeTags, // 浏览器解码一些特殊标签，这个是默认配置，具体戳开这个方法看
       shouldDecodeNewlines: options.shouldDecodeNewlines,
       start: function start(tag, attrs, unary) {
         // check namespace.
@@ -6507,26 +6608,38 @@
 
         // handle IE svg bug
         /* istanbul ignore if */
-        // IE 处理 SVG 的 bug，这个已经可以不考虑了，现在这个时代
+        // IE 处理 SVG 的 bug，这个已经可以不考虑了
         if (options.isIE && ns === "svg") {
           attrs = guardIESVGBug(attrs);
         }
-
-        // 初始化要输出的节点
+        /**
+         * 看一下 attrs：
+         * 0: {name: ":data-a", value: "sdfasdf"}
+         * 1: {name: "v-on:class", value: "tt"}
+         * 2: {name: "value", value: "999"}
+         */
         var element = {
-          type: 1, // 都作为开始标签了，类型一定是这个
+          type: 1, // 类型一定是这个
           tag: tag,
           attrsList: attrs,
-          attrsMap: makeAttrsMap(attrs), // 对象形式的 attrs，可能是为了方便之后处理
-          parent: currentParent,
+          /**
+           * 对象形式的 attrs，可能是为了方便之后处理
+           * attrsList 才是真正的记录关系用的
+           * 
+           * attrsMap 最终结果：
+           * :data-a: "sdfasdf"
+           * v-on:class: "tt"
+           * value: "999"
+           */
+          attrsMap: makeAttrsMap(attrs),
+          parent: currentParent, // 上文的父节点，会在迭代中不停的赋值
           children: [],
         };
 
         if (ns) {
           element.ns = ns;
         }
-        // 感觉理论上 isForbiddenTag 永远为 false，因为上文已经分流了这个情况
-        // 边界情况是？？？
+        // 理论上 isForbiddenTag 永远为 false，因为上文已经分流了这个情况
         if ("client" !== "server" && isForbiddenTag(element)) {
           element.forbidden = true;
           "development" !== "production" &&
@@ -6540,20 +6653,26 @@
         }
 
         // apply pre-transforms
-        // TODO，无法领悟是干嘛的，不过感觉不影响大流程，大部分情况都走不到这里
+        // 默认 []，不需要关心
         for (var i = 0; i < preTransforms.length; i++) {
           preTransforms[i](element, options);
         }
-
+        
+        // inVPre 是上文的变量，用来判断是否在 v-pre 指令里
         if (!inVPre) {
-          processPre(element); // 判断是否在 v-pre 指令中，这个方法里还会 set
+          /**
+           * processPre 会尝试获取并删除 attrList 中的 v-pre
+           * 然后为 element 尝试添加 pre 属性
+           * 这个 end 里会有时机重置为 false
+           */
+          processPre(element); 
           if (element.pre) {
             inVPre = true;
           }
         }
 
         if (platformIsPreTag(element.tag)) {
-          // 是否在 pre 标签中，在 end 里，他会重置成 false
+          // 是否在 pre 标签中，在 end 里，会重置成 false
           inPre = true;
         }
 
@@ -6561,19 +6680,38 @@
           // 如果 v-pre 设置 attr，不做任何指令、动态内容的翻译
           processRawAttrs(element);
         } else {
-          // TODO 处理指令和 attr 动态内容，晚点具体看？？？
-          processFor(element);
-          processIf(element);
-          processOnce(element);
-          processKey(element);
+          /**
+           * 处理指令和 attr 动态内容，不会具体求值
+           * 下面几个函数，然后取 attrsList 中特定的值，然后挂在 element.for="data" 这样的形式挂载
+           * 然后从 attrsList 中删除
+           */ 
+          processFor(element); // element 会挂上 for、alias、iterator1、iterator2
+          processIf(element); // element 会挂上 if、else，(v-else-if 是 2.1.0 之后新增的)
+          processOnce(element); // element 会挂上 once
+          processKey(element); // element 会挂上 key
 
-          // determine whether this is a plain element after
-          // removing structural attributes
+          /**
+           * determine whether this is a plain element after
+           * removing structural attributes
+           * 没有 key 和 没有 attrs length 设置成 plain
+           * plain 的意思是 `<div>sdf</div>` 这种干净的标签
+           * 这里判断了 key，是否下文有某种方式会增加这个 key，不然就不用关心了
+           */
           element.plain = !element.key && !attrs.length;
 
-          processRef(element);
-          processSlot(element);
-          processComponent(element);
+          processRef(element); // element 会挂上 ref、refInFor
+          // slot 已经被废弃了 v2.6.0
+          processSlot(element); // element 会挂上 slotName、slotTarget 
+
+          /**
+           * is api
+           * https://vue3js.cn/docs/zh/api/special-attributes.html#is
+           * component 对应的是 is api
+           * inlineTemplate 这个看 vue3 已经移除了，不需要多关心了
+           */
+          processComponent(element); // element 会挂上 component、inlineTemplate
+
+          // 默认 [] 不需要关心
           for (var i$1 = 0; i$1 < transforms.length; i$1++) {
             transforms[i$1](element, options);
           }
@@ -6643,7 +6781,7 @@
           stack.push(element);
         }
         // apply post-transforms
-        // 没看懂意思，TODO 吧 ？？？
+        // 默认 []， 不需要关心
         for (var i$2 = 0; i$2 < postTransforms.length; i$2++) {
           postTransforms[i$2](element, options);
         }
@@ -6746,9 +6884,9 @@
         }
       },
     });
-    /*
-     * currentParent 改的是引用
-     * 这个返回值看起来没用到，都是改的引用
+    /**
+     * 这个是在 parseHTML 中修改，并返回的，这个回头 TODO 一下
+     * 摘录出数据结构
      */
     return root;
   }
@@ -6758,6 +6896,7 @@
      * v-pre，主要是为了这个指令，跳过 {{ }}、指令的翻译，直接渲染
      * https://v3.vuejs.org/api/directives.html#v-pre
      */
+    // 这个里面删除 attr，设置 pre 都是在改 el 的引用
     if (getAndRemoveAttr(el, "v-pre") != null) {
       el.pre = true;
     }
@@ -6772,21 +6911,22 @@
        */
       var attrs = (el.attrs = new Array(l));
       for (var i = 0; i < l; i++) {
+        // 直接给 element 的 attrs 进行赋值了
         attrs[i] = {
           name: el.attrsList[i].name,
           value: JSON.stringify(el.attrsList[i].value),
         };
       }
-    } else if (!el.pre) {
+    } else if (!el.pre) { // el.pre 是判断是否在 v-pre 指令里面
       /**
-       * 这个边界情况，没找到资料，感觉是不需要额外关注的
        * non root node in pre blocks with no attributes
        */
-      el.plain = true;
+      el.plain = true; // 这个感觉不会到这里来？？？应该也不用怎么关心
     }
   }
 
   function processKey(el) {
+    // 获取并且删除 attrsList 中的值 bind 的值
     var exp = getBindingAttr(el, "key");
     if (exp) {
       if ("development" !== "production" && el.tag === "template") {
@@ -6802,6 +6942,7 @@
     var ref = getBindingAttr(el, "ref");
     if (ref) {
       el.ref = ref;
+      // 布尔值，字面意思，具体戳进去看
       el.refInFor = checkInFor(el);
     }
   }
@@ -6809,28 +6950,50 @@
   function processFor(el) {
     var exp;
     if ((exp = getAndRemoveAttr(el, "v-for"))) {
+      //  /(.*)\s+(?:in|of)\s+(.*)/ 是判断 in of
       var inMatch = exp.match(forAliasRE);
-      if (!inMatch) {
+      /**
+       * inMatch大概长这样：
+       * 0: "item in [1]"
+       * 1: "item"
+       * 2: "[1]"
+       */
+      if (!inMatch) { // 没匹配到就是无效表达式
         "development" !== "production" &&
           warn$1("Invalid v-for expression: " + exp);
         return;
       }
-      el.for = inMatch[2].trim();
-      var alias = inMatch[1].trim();
+      el.for = inMatch[2].trim(); // 迭代的对象是谁
+      var alias = inMatch[1].trim(); // in/of 迭代中的形参是什么
+
+      /**
+       * 大概匹配到的长这样：
+       * /\(([^,]*),([^,]*)(?:,([^,]*))?\)/
+       * 最后的输出是：
+       * 0: "(item, index)"
+       * 1: "item"
+       * 2: " index"
+       * 主要是针对有 item, index 的情况下重新定一下两个形参
+       */
       var iteratorMatch = alias.match(forIteratorRE);
+      
       if (iteratorMatch) {
         el.alias = iteratorMatch[1].trim();
-        el.iterator1 = iteratorMatch[2].trim();
+        el.iterator1 = iteratorMatch[2].trim(); // 下标
         if (iteratorMatch[3]) {
+          // 这个的意思是，其实这个 v-for 是想组成一个 (item, index, list) 的形式，第三个参数表示 list
+          // 只是用的比较少
           el.iterator2 = iteratorMatch[3].trim();
         }
       } else {
         el.alias = alias;
       }
     }
+    // 最终 element 会挂上 for、alias、iterator1、iterator2
   }
 
   function processIf(el) {
+    // v-else-if 是 2.1.0 添加的
     var exp = getAndRemoveAttr(el, "v-if");
     if (exp) {
       el.if = exp;
@@ -6880,37 +7043,71 @@
     }
   }
 
+  /**
+   * 除了下列这些属性：
+   * for、alias、iterator1、iterator2、if、else、once、key、plain、ref、refInFor、slotName、slotTarget
+   * 其他属性会进这个函数来绑定
+   */
   function processAttrs(el) {
     var list = el.attrsList;
     var i, l, name, value, arg, modifiers, isProp;
     for (i = 0, l = list.length; i < l; i++) {
       name = list[i].name;
       value = list[i].value;
+      /**
+       * /^v-|^@|^:/;
+       * 这里是说，是否是动态的属性值
+       * v- 自定义指令
+       * @事件 自定义指令
+       * : 绑定简写
+       */
       if (dirRE.test(name)) {
-        // mark element as dynamic
-        el.hasBindings = true;
-        // modifiers
-        modifiers = parseModifiers(name);
+        /**
+         * mark element as dynamic
+         * 整个元素有除了 for、alias、iterator1、iterator2、if、else、once、key、plain、ref、refInFor、slotName、slotTarget 之外的动态绑定值
+         */ 
+        el.hasBindings = true; 
+        /**
+         * modifiers
+         * /\.[^\.]+/g;
+         * 大部分情况是为了【事件处理装饰符】
+         * sync 装饰符是 v2.3.0 新增的
+         * 重新调整名称，并且缓存下装饰符，具体可以看下 parseModifiers
+         */
+        modifiers = parseModifiers(name); // { stop: true } 返回的是这样的结果，如果是属性，则会返回 { stop: true, prop: true }
         if (modifiers) {
-          name = name.replace(modifierRE, "");
+          name = name.replace(modifierRE, ""); // 调整名字为：v-on:click
         }
         if (bindRE.test(name)) {
-          // v-bind
+          /**
+           * v-bind 和 : 的情况
+           * v-bind:nameDemo="value" 处理这种情况，重新定义 name 为 nameDemo
+           */ 
           name = name.replace(bindRE, "");
+          // 2.0.0 基本上没什么属性的 modifiers，都是事件
+          // 查了下属性修饰符：<input type="text" v-model.lazy="value">，只找到一个这个
           if (modifiers && modifiers.prop) {
             isProp = true;
             name = camelize(name);
+            // 这个我找遍所有文档，都没找到这个修饰符，应该不要关注
+            // 修饰符太少了
             if (name === "innerHtml") {
               name = "innerHTML";
             }
           }
+          /**
+           * 绑定的值是属性或者是 "value, selected, checked, muted" 其中之一
+           * 往 props 和 attr 里推是不一样的
+           */ 
           if (isProp || platformMustUseProp(name)) {
+            // 往 el的 props 里推
             addProp(el, name, value);
           } else {
+            // 往 el 的 attrs 属性里推
             addAttr(el, name, value);
           }
         } else if (onRE.test(name)) {
-          // v-on
+          // v-on 和 @ 的情况
           name = name.replace(onRE, "");
           addHandler(el, name, value, modifiers);
         } else {
@@ -6925,6 +7122,7 @@
         }
       } else {
         // literal attribute
+        // 不符合标准的属性，直接跑错，不需要关注
         {
           var expression = parseText(value, delimiters);
           if (expression) {
@@ -6943,6 +7141,11 @@
     }
   }
 
+  /**
+   * 应该是找遍全节点？？？
+   * 看有没有被 for 循环？？？
+   * 应该不是这样的 el parent 的设置应该是有 scope 的
+   */ 
   function checkInFor(el) {
     var parent = el;
     while (parent) {
@@ -6966,6 +7169,12 @@
   }
 
   function makeAttrsMap(attrs) {
+    /**
+     * 入参
+     * 0: {name: ":data-a", value: "sdfasdf"}
+     * 1: {name: "v-on:class", value: "tt"}
+     * 2: {name: "value", value: "999"}
+     */
     var map = {};
     for (var i = 0, l = attrs.length; i < l; i++) {
       if ("development" !== "production" && map[attrs[i].name]) {
@@ -6973,6 +7182,12 @@
       }
       map[attrs[i].name] = attrs[i].value;
     }
+    /**
+     * 出参
+     * :data-a: "sdfasdf"
+     * v-on:class: "tt"
+     * value: "999"
+     */
     return map;
   }
 
@@ -7487,7 +7702,7 @@
    * Compile a template.
    */
   function compile$1(template, options) {
-    var ast = parse(template.trim(), options); // 最核心的编译方法
+    var ast = parse(template.trim(), options); // parse 方法中的 parseHTML 是非常重要的方法
     optimize(ast, options);
     var code = generate(ast, options);
     return {
@@ -7590,6 +7805,11 @@
 
   function transformNode(el, options) {
     var warn = options.warn || baseWarn;
+    /**
+     * 尝试处理 class，给 el 挂上 staticClass、classBinding
+     * 1. class 这种就认为是 static，直接赋值
+     * 2. :class、v-on:class 这种用下文的动态绑定方法绑定
+     */
     var staticClass = getAndRemoveAttr(el, "class");
     if ("development" !== "production" && staticClass) {
       var expression = parseText(staticClass, options.delimiters);
@@ -7613,6 +7833,7 @@
   }
 
   function genData$1(el) {
+    // 去处理后的 class 的值
     var data = "";
     if (el.staticClass) {
       data += "staticClass:" + el.staticClass + ",";
@@ -7632,6 +7853,7 @@
   /*  */
 
   function transformNode$1(el) {
+    // 尝试给 el 挂上 styleBinding
     var styleBinding = getBindingAttr(el, "style", false /* getStatic */);
     if (styleBinding) {
       el.styleBinding = styleBinding;
@@ -7639,6 +7861,7 @@
   }
 
   function genData$2(el) {
+    // 尝试拿 el.styleBinding 并且返回特殊的 value 格式：'style("value"),'
     return el.styleBinding ? "style:(" + el.styleBinding + ")," : "";
   }
 
@@ -7888,6 +8111,7 @@
   };
 
   function compile$$1(template, options) {
+    // extend 就是 assgin
     options = options ? extend(extend({}, baseOptions), options) : baseOptions;
     return compile$1(template, options);
   }

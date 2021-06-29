@@ -7,6 +7,7 @@ var apiURL = "https://api.github.com/repos/vuejs/vue/commits?per_page=3&sha=";
 var demo = new Vue({
   el: "#demo",
   data: {
+    test: 123,
     branches: ["master", "dev"],
     // currentBranch: "master",
     // commits: null,
@@ -28,18 +29,24 @@ var demo = new Vue({
   // template: `<div>{{ branches.join() | a }}</div>`,
   // template: `<div><span>test</span></div>`,
   // template: `1`,
+  // template: `<div>{{ fn1() }}</div>`,
   // template: `#test`,
-  template: `<div>asdfasdf</div>`,
+  // template: `<div v-for="(item, index, kkk) in [1]" :data-a="sdfasdf" v-on:class="tt" value="999" ><span>测试</span></div>`,
+  // template: `<div v-for="(item, index, kkk) in [1]" :data-a="sdfasdf" v-on:class="tt" value="999" ><span>测试</span></div>`,
+  // template: `<div :data-a="sdfasdf" v-on:class="tt" value="999" ><span>测试</span></div>`,
+  template: `<div :data-a="fff" v-on:click.stop="doThis">测试</div>`,
+  // template: '<div class="asdfsdf">asdfasdf</div>',
+  // template: '<div class="asdfsdf">asdfasdf</div>',
 
   created: function () {
     // this.fetchData();
   },
 
-  filters: {
-    a(value) {
-      return value + "123";
-    },
-  },
+  // filters: {
+  //   a(value) {
+  //     return value + "123";
+  //   },
+  // },
 
   watch: {
     // currentBranch: "fetchData",
@@ -56,6 +63,9 @@ var demo = new Vue({
   },
 
   methods: {
+    doThis() {
+      
+    },
     // fetchData: function () {
     //   var xhr = new XMLHttpRequest();
     //   var self = this;
@@ -66,5 +76,5 @@ var demo = new Vue({
     //   };
     //   xhr.send();
     // },
-  },
-});
+  }
+})
