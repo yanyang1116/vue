@@ -5929,7 +5929,7 @@
            *     end
            *     unarySlash
            *     ...
-           * } 
+           * }
            */
           // 一般都会进
           if (startTagMatch) {
@@ -5939,25 +5939,25 @@
         }
 
         /**
-         * 到了这里，说明
-         * 1. 没有任何 '<' 的标记
-         * 2. 最近的右边，已经没有标签了，这其实说明这个 text 没有被父节点包起来 ？？?
-         */
+         * 能到这里，基本就是 <> 两个标签之间的内容了 </>
+         * 在上文的 startTag、endTag 正则中都没有命中
+         */ 
         var text = void 0;
-        if (textEnd >= 0) {
-          // 这个判断里的情况，其实是下个 < 标记前，文本节点的提取
+        if (textEnd >= 0) { // 说明有确实有内容，然后才衔接到了,下一个开始或者结束标签的 < 符号
+          // 提取到下个 < 符号衔接前的内容 -> 两个标签之间的内容
           text = html.substring(0, textEnd);
-          advance(textEnd);
+          advance(textEnd); // html 里去掉 下个 < 之前的内容
         } else {
-          // 是不是只有没有被父节点包裹的文本节点才会到这里？？？
+          // 仔细想想 -> 到这里，这说明这个模板的定义是有问题的，要抛出错误了
+          // 不怎么需要关心
           text = html;
           html = ""; // 就是遇到没有根节点，结束 while
         }
 
-        if (options.chars) {
-          // 一定会进，options 有很多虽然是可以定制化的，但是基本上是不用关注的
+        if (options.chars) { // 一定进
           /**
            * 这个 chars 方法，是对文本节点的处理，也包括了 ' 字符或者空格 {{ }}' 语法的处理
+           * 说到底，就是对 '<> 两个标签之间的内容 </>' 进行处理
            */
           options.chars(text);
         }
@@ -6168,7 +6168,7 @@
             : value,
         };
       }
-      if (!unary) {  // 这里是说，【不可以】直接闭合的情况
+      if (!unary) {  // 这里是说，正常情况的开口标签
         // 往上文的 stack 中推入
         stack.push({ tag: tagName, attrs: attrs });
         lastTag = tagName; // 上层环境中的变量，是表示最近的开口标签是什么，记录关系
@@ -6473,7 +6473,6 @@
   }
 
   function addHandler(el, name, value, modifiers, important) {
-    // addHandler(el, name, value, modifiers);
     /** 
      * 捕获模式
      * 再常规事件处理顺序上，会优先处理增加了这个修饰符的事件
@@ -6482,6 +6481,7 @@
     if (modifiers && modifiers.capture) {
       // 做一个标记吧，方便下文处理
       delete modifiers.capture;
+      // ! 应该是个标记，等事件处理模块执行的时候，他会单独来处理这层关系
       name = "!" + name; // mark the event as captured
     }
     var events;
@@ -6491,6 +6491,12 @@
      */
     if (modifiers && modifiers.native) {
       delete modifiers.native;
+      /**
+       * 可以 console 敲一下，个人觉得这种写法还是挺难理解的：
+       * events 会尝试赋值成 el.nativeEvents 或者 el.events
+       * 如果 el 上没有这两个属性，会创建，并且 events 被初始化成 {}
+       * 【同时，这个 events 会指向 el 的 events 引用】
+       */ 
       events = el.nativeEvents || (el.nativeEvents = {});
     } else {
       events = el.events || (el.events = {});
@@ -6500,6 +6506,13 @@
     var newHandler = { value: value, modifiers: modifiers };
 
     var handlers = events[name];
+
+    /**
+     * 这里重点看下 【important】参数
+     * 实际上，是为了 input、radio 这种受控组件，v-model 这种双向绑定
+     * 在做自己的事件的时候，还要去做一个 data 绑定的操作
+     * 所以，这里的事件时有个顺序的
+     */
     /* istanbul ignore if */
     if (Array.isArray(handlers)) {
       important ? handlers.unshift(newHandler) : handlers.push(newHandler);
@@ -6508,6 +6521,7 @@
         ? [newHandler, handlers]
         : [handlers, newHandler];
     } else {
+      // 第一个初始化会到这里来，会改 el 上的引用！！！
       events[name] = newHandler;
     }
   }
@@ -6718,6 +6732,7 @@
           processAttrs(element);
         }
 
+        // slot、template、v-for 是不符合作为 root 节点的情况的
         function checkRootConstraints(el) {
           {
             if (el.tag === "slot" || el.tag === "template") {
@@ -6739,13 +6754,17 @@
           }
         }
 
-        // tree management
+        /**
+         * tree management
+         */
         if (!root) {
-          root = element; // 没有的话，当前元素写成根
-          checkRootConstraints(root); // 因为这个都是开始标签了，开始标签的第一次，跑这里来是没问题的
+          // 第一次才会进到这里
+          root = element;
+          checkRootConstraints(root); // 检查节点是否能做根节点
         } else if ("development" !== "production" && !stack.length && !warned) {
-          // 平铺节点，没有根节点的，基本都到这里了
-          // allow 2 root elements with v-if and v-else
+          /**
+           * 开发环境才会进这里，不用太多关注，这段就不看了吧
+           */ 
           if (
             root.attrsMap.hasOwnProperty("v-if") &&
             element.attrsMap.hasOwnProperty("v-else")
@@ -6759,23 +6778,29 @@
             );
           }
         }
+
+        // root 节点不会进这里，之后的节点处理才会，forbidden 不需要关心
         if (currentParent && !element.forbidden) {
           if (element.else) {
-            // 处理 else 可以看下具体实现，比较简单
+            /**
+             * 处理 else 强烈建议戳开看下
+             * 往平级 if 元素，前一项上挂这个 elseBlock 属性，让处理 if 的模块处理
+             */ 
             processElse(element, currentParent);
           } else {
-            // 组织当前元素
+            // 把当前节点往 parent 的 children 里推
             currentParent.children.push(element);
+            // 确认当前节点的父子关系
             element.parent = currentParent;
           }
         }
+        
         /**
-         * 组织一个 stack 结构，这个结构下文方法有用到
-         * 6090行附近的 'stack.push(' 方法有对这个结构的解释
-         *
-         * 因为这里是处理 unary 类型的 打开标签
-         * 所以这个 currentParent 就是当前 element
-         */
+         * 这里要看明白、想清楚：
+         * 1. 因为这个方法是在处理 start 标签
+         * 2. 处理完它，极有可能要去处理它下面的子元素，所以这里要赋值
+         * 3. stack 目前看起来是一个【平行】的【数组】接口，记录元素节点，他们之前的逻辑关系是 element 上自己的信息记录的
+         */ 
         if (!unary) {
           currentParent = element;
           stack.push(element);
@@ -6822,11 +6847,10 @@
         }
       },
 
+      // 处理文本类型，包括 {{  }} 表达式的情况
       chars: function chars(text) {
-        // 这个方法就是对文本节点、'{{ }}' 语法的处理
         if (!currentParent) {
-          // 上文会调用 start 方法中定义的 currentParent
-          // 如果当前文本节点没有父节点，需要抛出警告
+          // 其实是 start 里的逻辑 currentParent，这个抛错正常，很容易理解
           if ("development" !== "production" && !warned) {
             warned = true;
             warn$1(
@@ -6839,11 +6863,11 @@
 
         text =
           /**
-           * 1. 使用上文 decodeHTML 方法中的 innerHTML = html; 然后 decoder.textContent 取值出来
-           * 2. 主要是为了处理文本节点，转义问题: "&lt;b&gt;asdfasdf &lt;&#47;b&gt;" -> "<b>asdfasdf </b>"
+           * 使用 decodeHTML 方法中的 innerHTML = html; 然后 decoder.textContent 取值出来：
+           * 主要是为了处理文本节点，转义问题: "&lt;b&gt;asdfasdf &lt;&#47;b&gt;" -> "<b>asdfasdf </b>"
            */
-          inPre || text.trim()
-            ? decodeHTMLCached(text) // 这个方法里，用的一个闭包缓存纯函数的方法，以后可以抄一下
+          inPre || text.trim() // 这个判断，除非传入的是 '    '、' '这种情况，其他都会走
+            ? decodeHTMLCached(text) // decodeHTMLCached 底层是全文的缓存方法
             : /**
              * only preserve whitespace if its not right after a starting tag
              * 展开说一下，能走到这里说明：
@@ -7004,9 +7028,12 @@
   }
 
   function processElse(el, parent) {
-    // 可以看下这个方法，解释了为什么 v-if 和 v-else 要放在一起
+    /**
+     * findPrevElement 找当前 parent 的 children 了 length - 1 项
+     * 解释了为什么 v-if 和 v-else 要放在一起，而且是仅仅相连的
+     */
     var prev = findPrevElement(parent.children);
-    if (prev && prev.if) {
+    if (prev && prev.if) { // 往前一项上挂这个 elseBlock 属性，让处理 if 的模块处理
       prev.elseBlock = el;
     } else {
       warn$1(
@@ -7071,8 +7098,9 @@
          * modifiers
          * /\.[^\.]+/g;
          * 大部分情况是为了【事件处理装饰符】
-         * sync 装饰符是 v2.3.0 新增的
+         * 比较重要的属性装饰器 sync 装饰符是 v2.3.0 新增的
          * 重新调整名称，并且缓存下装饰符，具体可以看下 parseModifiers
+         * 建议看下装饰器，还是有蛮多的：https://cn.vuejs.org/v2/api/#v-bind
          */
         modifiers = parseModifiers(name); // { stop: true } 返回的是这样的结果，如果是属性，则会返回 { stop: true, prop: true }
         if (modifiers) {
@@ -7084,13 +7112,12 @@
            * v-bind:nameDemo="value" 处理这种情况，重新定义 name 为 nameDemo
            */ 
           name = name.replace(bindRE, "");
-          // 2.0.0 基本上没什么属性的 modifiers，都是事件
-          // 查了下属性修饰符：<input type="text" v-model.lazy="value">，只找到一个这个
+          // 2.0.0 基本上没什么属性的 modifiers，都是事件，找到这几个 .prop、.camel、.sync、.lazy 有些是 v2.0.0 之后版本加的
+          // 例子：<input type="text" v-model.lazy="value">
           if (modifiers && modifiers.prop) {
             isProp = true;
             name = camelize(name);
             // 这个我找遍所有文档，都没找到这个修饰符，应该不要关注
-            // 修饰符太少了
             if (name === "innerHtml") {
               name = "innerHTML";
             }
@@ -7107,17 +7134,25 @@
             addAttr(el, name, value);
           }
         } else if (onRE.test(name)) {
-          // v-on 和 @ 的情况
+          // v-on 和 @ 的情况，建议戳到 addHandler 看一下，很多细节处理
           name = name.replace(onRE, "");
           addHandler(el, name, value, modifiers);
         } else {
-          // normal directives
+          /**
+           * normal directives，处理 v- 指令的情况
+           * v-html、v-model、v-show 等等
+           */ 
           name = name.replace(dirRE, "");
           // parse arg
           var argMatch = name.match(argRE);
           if (argMatch && (arg = argMatch[1])) {
             name = name.slice(0, -(arg.length + 1));
           }
+          /**
+           * 此处往 el 上继续挂 directives
+           * 处理指令的模块会做后续处理
+           * 可以戳看看一下这个指令，是个数组，一个 el 可以挂多个指令
+           */
           addDirective(el, name, value, arg, modifiers);
         }
       } else {

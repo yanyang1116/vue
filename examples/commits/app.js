@@ -34,7 +34,7 @@ var demo = new Vue({
   // template: `<div v-for="(item, index, kkk) in [1]" :data-a="sdfasdf" v-on:class="tt" value="999" ><span>测试</span></div>`,
   // template: `<div v-for="(item, index, kkk) in [1]" :data-a="sdfasdf" v-on:class="tt" value="999" ><span>测试</span></div>`,
   // template: `<div :data-a="sdfasdf" v-on:class="tt" value="999" ><span>测试</span></div>`,
-  template: `<div :data-a="fff" v-on:click.stop="doThis">测试</div>`,
+  template: `<div v-test:asdf="sdfas" :data-a="fff" v-on:click.stop="doThis">测试</div>`,
   // template: '<div class="asdfsdf">asdfasdf</div>',
   // template: '<div class="asdfsdf">asdfasdf</div>',
 
@@ -64,7 +64,7 @@ var demo = new Vue({
 
   methods: {
     doThis() {
-      
+
     },
     // fetchData: function () {
     //   var xhr = new XMLHttpRequest();
